@@ -76,22 +76,6 @@ def _create_retry_decorator(
     )
 
 
-async def acompletion_with_retry(
-    llm: ChatOpenAI,
-    run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
-    **kwargs: Any,
-) -> Any:
-    """Use tenacity to retry the async completion call."""
-    retry_decorator = _create_retry_decorator(llm, run_manager=run_manager)
-
-    @retry_decorator
-    async def _completion_with_retry(**kwargs: Any) -> Any:
-        # Use OpenAI's async api https://github.com/openai/openai-python#async-api
-        return await llm.client.acreate(**kwargs)
-
-    return await _completion_with_retry(**kwargs)
-
-
 def _convert_delta_to_message_chunk(
     _dict: Mapping[str, Any], default_class: type[BaseMessageChunk]
 ) -> BaseMessageChunk:
@@ -265,6 +249,20 @@ class ChatOpenAI(BaseChatModel):
             **self.model_kwargs,
         }
 
+    async def acompletion_with_retry(
+        self,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Use tenacity to retry the async completion call."""
+        retry_decorator = _create_retry_decorator(self, run_manager=run_manager)
+
+        @retry_decorator
+        async def _completion_with_retry(**kwargs: Any) -> Any:
+            return await self.client.acreate(**kwargs)
+
+        return await _completion_with_retry(**kwargs)
+
     def completion_with_retry(
         self, run_manager: Optional[CallbackManagerForLLMRun] = None, **kwargs: Any
     ) -> Any:
@@ -376,8 +374,8 @@ class ChatOpenAI(BaseChatModel):
         params = {**params, **kwargs, "stream": True}
 
         default_chunk_class = AIMessageChunk
-        async for chunk in await acompletion_with_retry(
-            self, messages=message_dicts, run_manager=run_manager, **params
+        async for chunk in await self.acompletion_with_retry(
+            messages=message_dicts, run_manager=run_manager, **params
         ):
             if len(chunk["choices"]) == 0:
                 continue
@@ -416,8 +414,8 @@ class ChatOpenAI(BaseChatModel):
 
         message_dicts, params = self._create_message_dicts(messages, stop)
         params = {**params, **kwargs}
-        response = await acompletion_with_retry(
-            self, messages=message_dicts, run_manager=run_manager, **params
+        response = await self.acompletion_with_retry(
+            messages=message_dicts, run_manager=run_manager, **params
         )
         return self._create_chat_result(response)
 
